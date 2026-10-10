@@ -1,0 +1,6 @@
+{
+  "bridge": "Use the official testnet bridge only (link in #links). Switch wallet to the testnet network first, then retry. If stuck >10 min, open /ticket.",
+  "faucet": "Claim test tokens at the faucet link in #links (once per 24h). Tokens have no value — never share your seed phrase with anyone offering 'help'.",
+  "wallet": "Use a fresh testnet-only wallet. Never import your main wallet seed anywhere. If a site asks for your seed phrase, it's a scam — close it.",
+  "rules": "1) No spam/DMs. 2) No seed phrases ever. 3) English in main chat. 4) Scam links = instant ban. Mods' word is final."
+}
