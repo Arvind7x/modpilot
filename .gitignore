@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+
+bot-live.log
+bot-live.err.log
