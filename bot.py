@@ -52,6 +52,7 @@ with open("faqs.json", encoding="utf-8") as f:
 
 intents = discord.Intents.default()
 intents.message_content = True  # enable "Message Content Intent" in the dev portal too
+intents.members = True  # needed so the bot can find mods to add to tickets (toggle "Server Members Intent" in portal too)
 
 EMOJI_RE = re.compile(
     "[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]+"
@@ -61,6 +62,23 @@ EMOJI_RE = re.compile(
 def clean_ai(text):
     """Strip emojis + collapse blank lines. Seatbelt for the no-emoji rule."""
     return re.sub(r"\n{3,}", "\n\n", EMOJI_RE.sub("", text or "")).strip()
+
+
+def _ticket_staff(guild, opener, limit=10):
+    """Staff who must see every ticket: server owner + Manage-Threads holders.
+    They get ADDED to the thread, so visibility never depends on permissions."""
+    try:
+        cands = []
+        for m in getattr(guild, "members", []) or []:
+            if m.bot or m.id == opener.id:
+                continue
+            perms = m.guild_permissions
+            if m.id == getattr(guild, "owner_id", None) or getattr(perms, "manage_threads", False):
+                cands.append(m)
+        cands.sort(key=lambda m: (0 if m.id == getattr(guild, "owner_id", None) else 1))
+        return cands[:limit]
+    except Exception:
+        return []
 
 
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -145,9 +163,18 @@ async def ticket(inter: discord.Interaction, problem: str):
         return
     try:
         await thread.add_user(inter.user)
+        staff = _ticket_staff(thread.guild, inter.user)
+        print(f"TICKET-DEBUG staff auto-added: {len(staff)}", flush=True)
+        for s in staff:
+            try:
+                await thread.add_user(s)
+            except Exception:
+                pass
+        mentions = " ".join(s.mention for s in staff[:5])
         await thread.send(
             f"**Ticket from {inter.user.mention}**\nProblem: **{problem}**\n"
-            "Mods: please reply here. User: add screenshots / wallet / tx hash if relevant."
+            + (f"{mentions} — please reply here.\n" if mentions else "Mods: please reply here.\n")
+            + "User: add screenshots / wallet / tx hash if relevant."
         )
         stub = await inter.original_response()
         await stub.edit(content="🎫 Ticket opened — mods, check your private threads.")
