@@ -111,15 +111,21 @@ async def faq(inter: discord.Interaction, topic: str):
 async def ticket(inter: discord.Interaction, problem: str):
     # Fast public ack with NO private details, so the interaction never times out.
     await inter.response.send_message("🎫 Opening your private ticket…")
-    stub = await inter.original_response()
+    if not hasattr(inter.channel, "create_thread"):
+        await inter.followup.send("Please use /ticket in a normal text channel, not inside a thread.", ephemeral=True)
+        return
     thread = None
     last_err = None
     for dur in (1440, 60):  # 24h needs boosts on some servers; 60 works everywhere
         try:
-            thread = await stub.create_thread(
+            # NOTE: private threads can only be born from the CHANNEL call —
+            # the message-level call has no 'type' knob (TypeError otherwise).
+            thread = await inter.channel.create_thread(
                 name=f"ticket-{inter.user.name}"[:90],
                 auto_archive_duration=dur,
                 type=discord.ChannelType.private_thread,
+                invitable=False,
+                reason=f"ModPilot ticket for {inter.user}",
             )
             break
         except Exception as e:
@@ -129,7 +135,7 @@ async def ticket(inter: discord.Interaction, problem: str):
     if thread is None:
         code = getattr(last_err, "code", "?")
         status = getattr(last_err, "status", "?")
-        print(f"TICKET-DEBUG create_thread failed twice: {type(last_err).__name__} status={status} code={code} msg={last_err}", flush=True)
+        print(f"TICKET-DEBUG channel.create_thread failed twice: {type(last_err).__name__} status={status} code={code} msg={last_err}", flush=True)
         await inter.followup.send(
             "Couldn't open a private ticket here — this server needs the **Create Private Threads** "
             "permission re-authorised. Ask an admin to re-open my invite link, then try again. "
@@ -143,6 +149,7 @@ async def ticket(inter: discord.Interaction, problem: str):
             f"**Ticket from {inter.user.mention}**\nProblem: **{problem}**\n"
             "Mods: please reply here. User: add screenshots / wallet / tx hash if relevant."
         )
+        stub = await inter.original_response()
         await stub.edit(content="🎫 Ticket opened — mods, check your private threads.")
         await inter.followup.send(
             f"Your private ticket is ready: {thread.jump_url} — only you and the mods can see it.",
