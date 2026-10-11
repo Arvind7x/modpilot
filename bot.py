@@ -30,7 +30,7 @@ def openrouter_chat(system, user, model):
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "max_tokens": 300,
+        "max_tokens": 400,
     }).encode()
     req = _urlreq.Request(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -168,10 +168,12 @@ async def summarize(inter: discord.Interaction):
         await inter.followup.send(f"Could not read this thread ({type(e).__name__}).")
         return
     system = (
-        "You're a sharp crypto-Discord mod assistant. Rules: no greetings, no filler, "
-        "zero emojis, under 80 words total. Read the vibe and name it in ONE cool short line. "
-        "Then: what's happening (1-2 lines max), what the mod should do (1 line). "
-        "Straight, confident, a little witty — like a competent degen who respects people's time."
+        "Summarize this Discord thread for a busy moderator. Plain facts only: "
+        "no greetings, no jokes, no vibe commentary, zero emojis, under 60 words. "
+        "Format exactly like this:\n"
+        "Problem: <one line>\n"
+        "Fix: <one line>\n"
+        "Reply: <one line the mod can paste>"
     )
     # 1) Claude first (keeps the future startup story), 2) OpenRouter fallback
     if ANTHROPIC_KEY:
@@ -180,7 +182,7 @@ async def summarize(inter: discord.Interaction):
             client = Anthropic(api_key=ANTHROPIC_KEY)
             resp = client.messages.create(
                 model="claude-haiku-4-5",
-                max_tokens=600,
+                max_tokens=400,
                 system=system,
                 messages=[{"role": "user", "content": convo[-6000:]}],
             )
