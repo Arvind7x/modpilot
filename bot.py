@@ -3,6 +3,7 @@ zero API. /summarize uses Claude Haiku ONLY if ANTHROPIC_API_KEY is set."""
 import asyncio
 import json as _json
 import os
+import re
 import threading
 import urllib.request as _urlreq
 
@@ -52,6 +53,16 @@ with open("faqs.json", encoding="utf-8") as f:
 intents = discord.Intents.default()
 intents.message_content = True  # enable "Message Content Intent" in the dev portal too
 
+EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]+"
+)
+
+
+def clean_ai(text):
+    """Strip emojis + collapse blank lines. Seatbelt for the no-emoji rule."""
+    return re.sub(r"\n{3,}", "\n\n", EMOJI_RE.sub("", text or "")).strip()
+
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
@@ -69,6 +80,19 @@ async def on_ready():
         print("Sync warning:", e)
 
 
+@bot.tree.error
+async def on_app_error(inter: discord.Interaction, error: app_commands.AppCommandError):
+    """Never die silent — always answer the user with something readable."""
+    try:
+        msg = "Glitched for a sec — try the command again. If it keeps failing, tell a mod."
+        if inter.response.is_done():
+            await inter.followup.send(msg, ephemeral=True)
+        else:
+            await inter.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
+
+
 @bot.tree.command(name="faq", description="Answer a common community question")
 @app_commands.describe(topic="Which topic? (bridge, faucet, wallet, rules)")
 async def faq(inter: discord.Interaction, topic: str):
@@ -82,17 +106,46 @@ async def faq(inter: discord.Interaction, topic: str):
         )
 
 
-@bot.tree.command(name="ticket", description="Open a support ticket thread")
+@bot.tree.command(name="ticket", description="Open a private support ticket")
 @app_commands.describe(problem="Briefly describe your problem")
 async def ticket(inter: discord.Interaction, problem: str):
-    await inter.response.send_message(
-        f"🎫 Ticket opened by {inter.user.mention}: **{problem}**\nA mod will reply here — please add screenshots / wallet / tx hash if relevant."
-    )
+    # Fast public ack with NO private details, so the interaction never times out.
+    await inter.response.send_message("🎫 Opening your private ticket…")
+    stub = await inter.original_response()
+    thread = None
+    for dur in (1440, 60):  # 24h needs boosts on some servers; 60 works everywhere
+        try:
+            thread = await stub.create_thread(
+                name=f"ticket-{inter.user.name}"[:90],
+                auto_archive_duration=dur,
+                type=discord.ChannelType.private_thread,
+            )
+            break
+        except Exception:
+            thread = None
+    if thread is None:
+        await inter.followup.send(
+            "Couldn't open a private ticket here — this server needs the **Create Private Threads** "
+            "permission re-authorised. Ask an admin to re-open my invite link, then try again.",
+            ephemeral=True,
+        )
+        return
     try:
-        msg = await inter.original_response()
-        await msg.create_thread(name=f"ticket-{inter.user.name}", auto_archive_duration=1440)
+        await thread.add_user(inter.user)
+        await thread.send(
+            f"**Ticket from {inter.user.mention}**\nProblem: **{problem}**\n"
+            "Mods: please reply here. User: add screenshots / wallet / tx hash if relevant."
+        )
+        await stub.edit(content="🎫 Ticket opened — mods, check your private threads.")
+        await inter.followup.send(
+            f"Your private ticket is ready: {thread.jump_url} — only you and the mods can see it.",
+            ephemeral=True,
+        )
     except Exception as e:
-        await inter.followup.send(f"(Could not create thread: {e})", ephemeral=True)
+        await inter.followup.send(
+            f"Ticket thread is open but setup hiccuped ({type(e).__name__}) — mods can still see it.",
+            ephemeral=True,
+        )
 
 
 @bot.tree.command(name="raid", description="Post a raid card")
@@ -107,14 +160,19 @@ async def summarize(inter: discord.Interaction):
     await inter.response.defer()
     try:
         msgs = []
-        async for m in inter.channel.history(limit=20, oldest_first=True):
+        async for m in inter.channel.history(limit=40, oldest_first=True):
             if not m.author.bot:
                 msgs.append(f"{m.author.display_name}: {m.content[:300]}")
         convo = "\n".join(msgs) or "(empty thread)"
     except Exception as e:
         await inter.followup.send(f"Could not read this thread ({type(e).__name__}).")
         return
-    system = "You help crypto-Discord mods. Reply in exactly 3 short lines: 1) user's problem, 2) likely cause/fix, 3) suggested mod reply. Plain text, no fluff."
+    system = (
+        "You're a sharp crypto-Discord mod assistant. Rules: no greetings, no filler, "
+        "zero emojis, under 80 words total. Read the vibe and name it in ONE cool short line. "
+        "Then: what's happening (1-2 lines max), what the mod should do (1 line). "
+        "Straight, confident, a little witty — like a competent degen who respects people's time."
+    )
     # 1) Claude first (keeps the future startup story), 2) OpenRouter fallback
     if ANTHROPIC_KEY:
         try:
@@ -122,11 +180,11 @@ async def summarize(inter: discord.Interaction):
             client = Anthropic(api_key=ANTHROPIC_KEY)
             resp = client.messages.create(
                 model="claude-haiku-4-5",
-                max_tokens=300,
+                max_tokens=600,
                 system=system,
-                messages=[{"role": "user", "content": convo[-4000:]}],
+                messages=[{"role": "user", "content": convo[-6000:]}],
             )
-            await inter.followup.send("🧠 **Thread summary** (via Claude)\n" + resp.content[0].text[:1500])
+            await inter.followup.send((clean_ai(resp.content[0].text) or "(empty reply)")[:1500] + "\n_model: claude-haiku_")
             return
         except Exception as e:
             if not OPENROUTER_KEY:
@@ -134,9 +192,9 @@ async def summarize(inter: discord.Interaction):
                 return
     if OPENROUTER_KEY:
         try:
-            text = await asyncio.to_thread(openrouter_chat, system, convo[-4000:], OR_MODEL)
-            await inter.followup.send("🧠 **Thread summary** (via OpenRouter)\n" + (text or "(empty reply)")[:1500]
-                                      + f"\n\n_model: {OR_MODEL}_")
+            text = await asyncio.to_thread(openrouter_chat, system, convo[-6000:], OR_MODEL)
+            text = clean_ai(text) or "(empty reply)"
+            await inter.followup.send(text[:1500] + f"\n_model: {OR_MODEL}_")
             return
         except Exception as e:
             await inter.followup.send(f"AI call failed ({type(e).__name__}: {e}). Check key/credits/model; bot commands still work.")
