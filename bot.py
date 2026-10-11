@@ -113,6 +113,7 @@ async def ticket(inter: discord.Interaction, problem: str):
     await inter.response.send_message("🎫 Opening your private ticket…")
     stub = await inter.original_response()
     thread = None
+    last_err = None
     for dur in (1440, 60):  # 24h needs boosts on some servers; 60 works everywhere
         try:
             thread = await stub.create_thread(
@@ -121,12 +122,18 @@ async def ticket(inter: discord.Interaction, problem: str):
                 type=discord.ChannelType.private_thread,
             )
             break
-        except Exception:
+        except Exception as e:
+            last_err = e
             thread = None
+            continue
     if thread is None:
+        code = getattr(last_err, "code", "?")
+        status = getattr(last_err, "status", "?")
+        print(f"TICKET-DEBUG create_thread failed twice: {type(last_err).__name__} status={status} code={code} msg={last_err}", flush=True)
         await inter.followup.send(
             "Couldn't open a private ticket here — this server needs the **Create Private Threads** "
-            "permission re-authorised. Ask an admin to re-open my invite link, then try again.",
+            "permission re-authorised. Ask an admin to re-open my invite link, then try again. "
+            f"(debug: {type(last_err).__name__} {status}/{code})",
             ephemeral=True,
         )
         return
