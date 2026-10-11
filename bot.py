@@ -186,7 +186,7 @@ async def summarize(inter: discord.Interaction):
                 system=system,
                 messages=[{"role": "user", "content": convo[-6000:]}],
             )
-            await inter.followup.send((clean_ai(resp.content[0].text) or "(empty reply)")[:1500] + "\n_model: claude-haiku_")
+            await inter.followup.send((clean_ai(resp.content[0].text) or "(empty reply)")[:1500])
             return
         except Exception as e:
             if not OPENROUTER_KEY:
@@ -196,7 +196,7 @@ async def summarize(inter: discord.Interaction):
         try:
             text = await asyncio.to_thread(openrouter_chat, system, convo[-6000:], OR_MODEL)
             text = clean_ai(text) or "(empty reply)"
-            await inter.followup.send(text[:1500] + f"\n_model: {OR_MODEL}_")
+            await inter.followup.send(text[:1500])
             return
         except Exception as e:
             await inter.followup.send(f"AI call failed ({type(e).__name__}: {e}). Check key/credits/model; bot commands still work.")
