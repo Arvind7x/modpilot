@@ -214,8 +214,33 @@ def run_web():
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
 
+async def boot_with_retry():
+    """Login with backoff. Render's shared IP sometimes gets temp-banned by
+    Discord (Cloudflare 429) for other people's abuse — ride it out instead
+    of crash-looping. Bad tokens still fail fast and loud."""
+    wait = 60
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            print(f"Login attempt {attempt}…", flush=True)
+            await bot.start(DISCORD_TOKEN)
+            return  # clean shutdown only
+        except discord.errors.LoginFailure:
+            print("DISCORD_TOKEN is invalid — fix the token, not retrying.", flush=True)
+            raise
+        except discord.errors.HTTPException as e:
+            if getattr(e, "status", None) == 429:
+                wait = min(wait, 600)
+                print(f"Rate-limited at login (shared-IP ban?) — retrying in {wait}s…", flush=True)
+                await asyncio.sleep(wait)
+                wait *= 2
+                continue
+            raise
+
+
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
         raise SystemExit("Missing DISCORD_TOKEN — copy .env.example to .env and paste your token.")
     threading.Thread(target=run_web, daemon=True).start()
-    bot.run(DISCORD_TOKEN)
+    asyncio.run(boot_with_retry())
