@@ -169,11 +169,10 @@ async def summarize(inter: discord.Interaction):
         return
     system = (
         "Summarize this Discord thread for a busy moderator. Plain facts only: "
-        "no greetings, no jokes, no vibe commentary, zero emojis, under 60 words. "
-        "Format exactly like this:\n"
-        "Problem: <one line>\n"
-        "Fix: <one line>\n"
-        "Reply: <one line the mod can paste>"
+        "no greetings, no filler, zero emojis, under 80 words. "
+        "Say what actually happened: who talked, key points, any decisions or open questions. "
+        "Only if someone needs help, add two extra lines — Fix: <one line> and Reply: <one line the mod can paste>. "
+        "If it's just casual chatter, cover it in 1-2 lines and stop. Never invent problems that aren't there."
     )
     # 1) Claude first (keeps the future startup story), 2) OpenRouter fallback
     if ANTHROPIC_KEY:
